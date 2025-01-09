@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\ApiCodeEnum;
 use App\Enums\Database\FriendEnum;
 use App\Enums\Database\MomentEnum;
+use App\Enums\Database\MoneyFlowLogEnum;
 use App\Enums\Database\UserEnum;
 use App\Enums\WorkerManEnum;
 use App\Exceptions\BusinessException;
@@ -13,6 +14,7 @@ use App\Models\Moment;
 use App\Models\User;
 use GatewayWorker\Lib\Gateway;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
 
@@ -85,6 +87,7 @@ class UserService extends BaseService
         $user->token = Crypt::encryptString($user->id . '|' . $time);
         $user->save();
         $user = $user->toArray();
+        empty($user['moment_bg_file_path']) && $user['moment_bg_file_path'] = 'https://k.sinaimg.cn/n/sinakd20111/585/w690h1495/20240802/01b1-a62237316a30f43ab04f0c3d0e1ebe67.jpg/w700d1q75cms.jpg';
         unset($user['password'], $user['salt']);
         return $user;
     }
@@ -118,7 +121,7 @@ class UserService extends BaseService
         $relationship = 'owner';
         $source = $isMobile ? 'mobile' : 'wechat';
         $setting = config('user.friend.setting');
-        $homeInfo = ['moment' => [], 'relationship' => 'owner', 'source' => $source, 'source_text' => '', 'remark' => '', 'keywords' => $params['keywords'], 'display_nickname' => $user->nickname];
+        $homeInfo = ['moment' => [], 'relationship' => 'owner', 'source' => $source, 'source_text' => '', 'remark' => '', 'keywords' => $params['keywords'], 'display_nickname' => $user->nickname, 'desc' => ''];
         $homeInfo = array_merge($homeInfo, $user->toArray());
         $sourceConfig = config('user.source');
         $assistantIds = get_assistant_ids();
@@ -152,6 +155,7 @@ class UserService extends BaseService
             if ($owner) {
                 $homeInfo['display_nickname'] = $owner->nickname ?: $user->nickname;
                 $homeInfo['source'] = $owner->source;
+                $homeInfo['desc'] = $owner->desc;
                 $setting = $owner->setting;
             }
         }
@@ -198,6 +202,7 @@ class UserService extends BaseService
         $updateData = [];
         foreach ($params as $key => $value) {
             if (in_array($key, $updateAllowFields)) {
+                if (in_array($key, ['avatar', 'bg_file_path', 'moment_bg_file_path'])) $value = str_replace(env('STATIC_FILE_URL'), '', $value);
                 $updateData[$key] = is_array($value) ? json_encode($value) : $value;
             }
         }
@@ -241,6 +246,16 @@ class UserService extends BaseService
      */
     public function charge(array $params): void
     {
-        User::changeMoney($params['user']->id, $params['money']);
+        DB::beginTransaction();
+        try {
+            User::changeMoney($params['user']->id, $params['money'], UserEnum::MONEY_INCR, [
+                'money_flow_type' => MoneyFlowLogEnum::TYPE_CHARGE,
+                'remark' => '钱包充值'
+            ]);
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            throw new BusinessException(ApiCodeEnum::SYSTEM_ERROR, $e->getMessage());
+        }
     }
 }

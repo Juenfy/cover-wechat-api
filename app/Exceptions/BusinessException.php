@@ -13,9 +13,9 @@ class BusinessException extends Exception
      */
     public function __construct(string|int $code, $message = '')
     {
-        if (stripos($code, '|') !== false && empty($message)) {
+        if (stripos($code, '|') !== false) {
             $arr = explode('|', $code);
-            $message = $arr[1];
+            empty($message) && $message = $arr[1];
             $code = $arr[0];
         }
         empty($message) && $message = '未知错误';

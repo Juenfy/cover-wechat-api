@@ -20,7 +20,8 @@
         "overtrue/pinyin": "^5.3",
         "php-ffmpeg/php-ffmpeg": "^1.2",
         "workerman/gateway-worker": "^3.1",
-        "workerman/gatewayclient": "^3.1"
+        "workerman/gatewayclient": "^3.1",
+        "ext-redis": "*"
     },
     "require-dev": {
         "fakerphp/faker": "^1.9.1",

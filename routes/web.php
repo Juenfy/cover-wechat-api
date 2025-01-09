@@ -42,6 +42,7 @@ $router->group(['middleware' => 'auth:api'], function ($router) {
         $router->get('/{keywords}/home', 'UserController@home');
         $router->put('/update', 'UserController@update');
         $router->get('/moments', 'UserController@moments');
+        $router->post('/charge', 'UserController@charge');
     });
 
     // 消息模块
@@ -91,5 +92,13 @@ $router->group(['middleware' => 'auth:api'], function ($router) {
         $router->delete('/unlike', 'MomentController@unlike');
         $router->post('/comment', 'MomentController@comment');
         $router->delete('/delete', 'MomentController@delete');
+    });
+
+    //红包模块
+    $router->group(['prefix' => 'red-packet'], function ($router) {
+        $router->get('/record-list', 'RedPacketController@recordList');
+        $router->get('/detail', 'RedPacketController@detail');
+        $router->post('/send', 'RedPacketController@send');
+        $router->post('/receive', 'RedPacketController@receive');
     });
 });

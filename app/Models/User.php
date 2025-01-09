@@ -118,46 +118,40 @@ class User extends Base implements AuthenticatableContract, AuthorizableContract
      * 充值
      * @param int|object $userId
      * @param string $money
-     * @param string $type
+     * @param string $changeType
      * @param array $extend
      * @return void
      * @throws BusinessException
      */
-    public static function changeMoney(int|object $userId, string $money, string $type = UserEnum::MONEY_INCR, array $extend = []): void
+    public static function changeMoney(int|object $userId, string $money, string $changeType = UserEnum::MONEY_INCR, array $extend = []): void
     {
-        DB::beginTransaction();
-        try {
-            if (is_int($userId))
-                $user = self::query()->findOrFail($userId);
-            else
-                $user = $userId;
-            $money = $money * 100;
-            $beforeMoney = $user->money;
-            if ($type === UserEnum::MONEY_INCR)
-                $user->money = $user->money + $money;
-            elseif ($type === UserEnum::MONEY_DECR) {
-                if ($money * 100 > $user->money)
-                    throw new BusinessException(ApiCodeEnum::SERVICE_ACCOUNT_MONEY_NOT_ENOUGH);
-                $user->money = $user->money - $money;
-            }
-            $afterMoney = $user->money;
-            if ($user->save() && isset($extend['money_flow_type'])) {
-                $data = [
-                    'type' => $extend['money_flow_type'],
-                    'from_id' => $extend['from_id'] ?? 0,
-                    'user_id' => $user->id,
-                    'before_money' => $beforeMoney,
-                    'after_money' => $afterMoney,
-                    'money' => $money,
-                    'remark' => $extend['remark'] ?? '',
-                    'created_at' => time()
-                ];
-                MoneyFlowLog::query()->insert($data);
-            }
-            DB::commit();
-        } catch (\Exception $e) {
-            DB::rollBack();
-            throw new BusinessException(ApiCodeEnum::SYSTEM_ERROR, $e->getMessage());
+        if (is_int($userId))
+            $user = self::query()->findOrFail($userId);
+        else
+            $user = $userId;
+        $money = $money * 100;
+        $moneyBefore = $user->money;
+        if ($changeType === UserEnum::MONEY_INCR)
+            $user->money = $user->money + $money;
+        elseif ($changeType === UserEnum::MONEY_DECR) {
+            if ($money > $user->money)
+                throw new BusinessException(ApiCodeEnum::SERVICE_ACCOUNT_MONEY_NOT_ENOUGH);
+            $user->money = $user->money - $money;
+        }
+        $moneyAfter = $user->money;
+        if ($user->save() && isset($extend['money_flow_type'])) {
+            $data = [
+                'type' => $extend['money_flow_type'],
+                'change_type' => $changeType,
+                'from_id' => $extend['from_id'] ?? 0,
+                'user_id' => $user->id,
+                'money_before' => $moneyBefore,
+                'money_after' => $moneyAfter,
+                'money' => $money,
+                'remark' => $extend['remark'] ?? '',
+                'created_at' => time()
+            ];
+            MoneyFlowLog::query()->insert($data);
         }
     }
 }
