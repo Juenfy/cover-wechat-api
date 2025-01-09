@@ -266,6 +266,7 @@ class ChatService extends BaseService
                     $updateData['group'][$key == 'group_name' ? 'name' : $key] = is_bool($value) ? intval($value) : $value;
                 }
                 if (in_array($key, $groupUserFields)) {
+                    if ($key === 'bg_file_path') $value = str_replace(env('STATIC_FILE_URL'), '', $value);
                     $updateData['group_user'][$key] = is_bool($value) ? intval($value) : $value;
                 }
             }
@@ -283,6 +284,7 @@ class ChatService extends BaseService
             $updateData = [];
             foreach ($params as $key => $value) {
                 if (in_array($key, $commonFields)) {
+                    if ($key === 'bg_file_path') $value = str_replace(env('STATIC_FILE_URL'), '', $value);
                     $updateData[$key] = is_bool($value) ? intval($value) : $value;
                 }
             }

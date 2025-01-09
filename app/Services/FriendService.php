@@ -32,7 +32,7 @@ class FriendService extends BaseService
             ->when(!empty($params['type']) && $params['type'] == 'only_chat', function ($query) {
                 $query->whereJsonContains('setting', ["FriendPerm" => ["SettingFriendPerm" => 'ONLY_CHAT']]);
             })
-            ->get(['id', 'owner', 'friend', 'nickname', 'source'])->toArray();
+            ->get(['id', 'owner', 'friend', 'nickname', 'source', 'desc'])->toArray();
 
         foreach ($friendList as &$friend) {
             $friend['nickname'] = $friend['nickname'] ?: $friend['friend']['nickname'];
@@ -59,7 +59,7 @@ class FriendService extends BaseService
             $query->select(['id', 'nickname', 'avatar', 'mobile', 'wechat']);
         }])
             ->where('hide', 0)
-            ->whereRaw("owner = {$userId} OR friend = {$userId}")
+            ->whereRaw("(owner = {$userId} OR friend = {$userId}) and remark <> ''")
             ->get()->toArray();
 
         $day = 86400;

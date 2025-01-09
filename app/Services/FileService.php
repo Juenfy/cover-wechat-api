@@ -107,7 +107,11 @@ class FileService extends BaseService
             $video->frame(\FFMpeg\Coordinate\TimeCode::fromSeconds(1))
                 ->save(storage_path('app/public/' . $thumbnailFilePath));
         } elseif ($fileType == FileEnum::AUDIO) {
-            // 获取音频时长
+            // 获取音频时长 音频没声音会获取失败的
+            $duration = (int)$ffprobe->format($tmpPath)->get('duration');
+            if (!$duration && request('duration')) {
+                $duration = request('duration');
+            }
         }
 
         // 将文件信息存储到数据库

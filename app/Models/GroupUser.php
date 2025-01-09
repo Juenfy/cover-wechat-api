@@ -23,15 +23,16 @@ class GroupUser extends Base
      * 是否群成员
      * @param $userId
      * @param $groupId
-     * @param $returnGroup
+     * @param bool $returnGroup
      * @return bool|array
      */
-    public static function checkIsGroupMember($userId, $groupId, $returnGroup = false): bool|array
+    public static function checkIsGroupMember($userId, $groupId, bool $returnGroup = false): bool|array
     {
         $group = self::query()
             ->where('group_id', $groupId)
             ->where('user_id', $userId)
-            ->first(['group_id', 'user_id', 'nickname'])->toArray();
+            ->first(['group_id', 'user_id', 'nickname']);
+        $group = $group ? $group->toArray() : [];
         return $returnGroup ? [(bool)$group, $group] : (bool)$group;
     }
 

@@ -11,7 +11,7 @@ return [
         'wechat' => 'draw-image',
         'nickname' => 'AI绘图-小图',
         'type' => 'image',
-        'avatar' => 'https://ai-sora.oss-cn-hangzhou.aliyuncs.com/mj_generate_images/5-1712836180-ldc857857_A_mechanical_platinum_mech_female_character_macro_ove_035bc5b9-2772-4027-99ca-154393b65823.png?x-oss-process=image/resize,w_500,m_lfit',
+        'avatar' => 'https://apic.tvzhe.com/images/e5/0b/71e2590f3550351caf86befb58a7140bf70e0be5.png',
         'account_id' => '970edfbecb39ea3bae2cc34ac1636ed4',
         'api_uri' => 'https://api.cloudflare.com/client/v4/accounts/970edfbecb39ea3bae2cc34ac1636ed4/ai/run/@cf/lykon/dreamshaper-8-lcm',
         'token' => 'QGb4agQuPlOgNS6VtzryfUI4xMce3N2Am284OVX2',
