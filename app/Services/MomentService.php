@@ -59,7 +59,7 @@ class MomentService extends BaseService
             'user_id' => $params['user']->id,
             'type' => $params['type'],
             'content' => $params['content'],
-            'created_at' => time(),
+            'created_at' => $this->time,
         ];
         DB::beginTransaction();
         try {
@@ -72,7 +72,7 @@ class MomentService extends BaseService
                     $batchFileData[] = [
                         'moment_id' => $id,
                         'file_id' => $file['id'],
-                        'created_at' => time(),
+                        'created_at' => $this->time,
                     ];
                 }
                 MomentFiles::query()->insert($batchFileData);
@@ -98,7 +98,7 @@ class MomentService extends BaseService
             'moment_id' => $params['id'],
             'from_user' => $params['user']->id,
             'type' => MomentEnum::LIKE,
-            'created_at' => time(),
+            'created_at' => $this->time,
         ];
         DB::beginTransaction();
         try {
@@ -163,7 +163,7 @@ class MomentService extends BaseService
             'to_user' => $toUser,
             'type' => MomentEnum::COMMENT,
             'content' => $content,
-            'created_at' => time(),
+            'created_at' => $this->time,
         ];
         DB::beginTransaction();
         try {

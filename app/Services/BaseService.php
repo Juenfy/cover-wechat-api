@@ -9,6 +9,12 @@ use Illuminate\Support\Facades\Log;
 
 abstract class BaseService
 {
+    protected int $time;
+    public function __construct()
+    {
+        $this->time = time();
+    }
+
     use ServiceException;
 
     protected function forgetRememberCache($store, ...$keys): bool

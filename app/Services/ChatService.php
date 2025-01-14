@@ -184,7 +184,7 @@ class ChatService extends BaseService
         $toUser = $params['to_user'];
         $fromUser = $params['user']->id;
         $isTop = $params['is_top'];
-        $time = $isTop > 0 ? time() : 0;
+        $time = $isTop > 0 ? $this->time : 0;
         if ($isGroup == MessageEnum::GROUP) {
             GroupUser::query()
                 ->where('group_id', $toUser)

@@ -76,7 +76,7 @@ class FriendService extends BaseService
             }
             $apply['keywords'] = $apply['friend'][$apply['source']] ?? $apply['friend']['wechat'];
             unset($apply['friend']['mobile'], $apply['friend']['wechat'], $apply['owner']['mobile'], $apply['owner']['wechat']);
-            $days = (time() - strtotime($apply['created_at'])) / $day;
+            $days = ($this->time - strtotime($apply['created_at'])) / $day;
             if ($days > 3) {
                 $overThreeDay[] = $apply;
             } else {
@@ -182,7 +182,7 @@ class FriendService extends BaseService
                 $friend->type = FriendEnum::TYPE_APPLY;
                 $friend->status = FriendEnum::STATUS_CHECK;
                 $friend->deleted_at = null;
-                $friend->created_at = time();
+                $friend->created_at = $this->time;
                 $friend->hide = 0;
                 $friend->nickname = $params['nickname'];
                 $friend->remark = $params['remark'];
@@ -235,7 +235,6 @@ class FriendService extends BaseService
     {
         $fromUser = $params['user']->id;
         $toUser = $params['friend'];
-        $time = time();
         $user = User::query()->find($toUser, ['nickname']);
         //备注相同就是没有备注
         if ($user->nickname == $params['nickname']) $params['nickname'] = '';
@@ -257,7 +256,7 @@ class FriendService extends BaseService
             $owner->status = FriendEnum::STATUS_PASS;
             $owner->display = 1;
             $owner->content = FriendEnum::PASS_MESSAGE;
-            $owner->time = $time;
+            $owner->time = $this->time;
             $owner->save();
 
             $friend = Friend::query()->where('owner', $toUser)->where('friend', $fromUser)->first();
@@ -266,7 +265,7 @@ class FriendService extends BaseService
             $friend->display = 1;
             $friend->unread = 1;
             $friend->content = FriendEnum::PASS_MESSAGE;
-            $friend->time = $time;
+            $friend->time = $this->time;
             $friend->save();
             DB::commit();
             //发送好友申请通过消息
@@ -293,7 +292,7 @@ class FriendService extends BaseService
                     'at_users' => [],
                     'is_group' => MessageEnum::PRIVATE,
                     'right' => false,
-                    'time' => $time,
+                    'time' => $this->time,
                 ]
             ];
             $data = [
@@ -302,7 +301,7 @@ class FriendService extends BaseService
                 'content' => FriendEnum::PASS_MESSAGE,
                 'is_group' => MessageEnum::PRIVATE,
                 'type' => MessageEnum::TEXT,
-                'created_at' => $time
+                'created_at' => $this->time
             ];
             $sendData['data']['id'] = Message::query()->insertGetId($data);
             Gateway::sendToUid($toUser, json_encode($sendData, JSON_UNESCAPED_UNICODE));

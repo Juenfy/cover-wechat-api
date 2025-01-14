@@ -24,14 +24,13 @@ class AssistantService extends BaseService
 {
     private array $aiList;
 
-    private int $time;
 
     private array $assistant;
 
     public function __construct(array $assistantIds = [])
     {
+        parent::__construct();
         $this->assistant = config('assistant');
-        $this->time = time();
         if (!$assistantIds) $assistantIds = array_keys($this->assistant);
         // ai小助手
         $this->aiList = User::query()->whereIn('id', $assistantIds)->where('status', UserEnum::STATUS_NORMAL)->get()->toArray();
@@ -166,7 +165,7 @@ class AssistantService extends BaseService
                 } else {
                     //下载并回复绘制好的图片
                     $date = date('Ymd');
-                    $fileName = md5(uniqid(time(), true)) . ".png";
+                    $fileName = md5(uniqid($this->time, true)) . ".png";
                     $filePath = "uploads/image/{$date}/{$fileName}";
                     $fileRealPath = Storage::disk('public')->path($filePath);
                     $thumbnailFilePath = "uploads/image/{$date}/thumbnail_{$fileName}";

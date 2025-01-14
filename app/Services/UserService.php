@@ -69,7 +69,7 @@ class UserService extends BaseService
                 'who' => WorkerManEnum::WHO_USER,
                 'action' => WorkerManEnum::ACTION_LOGOUT,
                 'data' => [
-                    'time' => date('Y-m-d H:i:s', time()),
+                    'time' => date('Y-m-d H:i:s', $this->time),
                 ]
             ]));
         }
@@ -82,12 +82,10 @@ class UserService extends BaseService
             if (!Hash::check($user->salt . $params['password'], $user->password))
                 $this->throwBusinessException(ApiCodeEnum::SERVICE_ACCOUNT_OR_PASSWORD_ERROR);
         }
-        $time = time();
-        $user->token_expire_in = $time + config('auth.token_expire_time');
-        $user->token = Crypt::encryptString($user->id . '|' . $time);
+        $user->token_expire_in = $this->time + config('auth.token_expire_time');
+        $user->token = Crypt::encryptString($user->id . '|' . $this->time);
         $user->save();
         $user = $user->toArray();
-        empty($user['moment_bg_file_path']) && $user['moment_bg_file_path'] = 'https://k.sinaimg.cn/n/sinakd20111/585/w690h1495/20240802/01b1-a62237316a30f43ab04f0c3d0e1ebe67.jpg/w700d1q75cms.jpg';
         unset($user['password'], $user['salt']);
         return $user;
     }

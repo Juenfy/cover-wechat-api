@@ -81,7 +81,6 @@ class GroupService extends BaseService
         $action = $params['action'];
         $groupId = $params['group_id'] ?? 0;
         $name = "群聊";
-        $time = time();
         if ($action == GroupEnum::ACTION_INVITE) {
             empty($groupId) && $this->throwBusinessException(ApiCodeEnum::CLIENT_PARAMETER_ERROR);
             $group = Group::query()->find($groupId, ['name']);
@@ -112,9 +111,9 @@ class GroupService extends BaseService
                     'notice' => '',
                     'send_user' => $userId,
                     'content' => $content,
-                    'time' => $time,
+                    'time' => $this->time,
                     'setting' => json_encode([]),
-                    'created_at' => $time,
+                    'created_at' => $this->time,
                 ];
                 $id = Group::query()->insertGetId($groupData);
                 //把ai小助手加入群聊
@@ -133,7 +132,7 @@ class GroupService extends BaseService
                     'unread' => 1,
                     'setting' => json_encode([]),
                     'deleted_at' => 0,
-                    'created_at' => $time,
+                    'created_at' => $this->time,
                 ];
             }
             GroupUser::query()->upsert($batch, ['group_id', 'user_id']);
