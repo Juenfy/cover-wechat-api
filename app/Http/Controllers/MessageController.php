@@ -41,7 +41,6 @@ class MessageController extends Controller
     {
         $this->validate($request, [
             'to_user' => 'required',
-            'content' => 'required',
             'type' => 'required',
             'is_group' => 'required'
         ]);

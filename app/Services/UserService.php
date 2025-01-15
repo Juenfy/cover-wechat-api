@@ -240,17 +240,19 @@ class UserService extends BaseService
     /**
      * 充值
      * @param array $params
+     * @return array
      * @throws BusinessException
      */
-    public function charge(array $params): void
+    public function charge(array $params): array
     {
         DB::beginTransaction();
         try {
-            User::changeMoney($params['user']->id, $params['money'], UserEnum::MONEY_INCR, [
+            $money = User::changeMoney($params['user']->id, $params['money'], UserEnum::MONEY_INCR, [
                 'money_flow_type' => MoneyFlowLogEnum::TYPE_CHARGE,
                 'remark' => '钱包充值'
             ]);
             DB::commit();
+            return ['money' =>  $money];
         } catch (\Exception $e) {
             DB::rollBack();
             throw new BusinessException(ApiCodeEnum::SYSTEM_ERROR, $e->getMessage());

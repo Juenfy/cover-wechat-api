@@ -133,7 +133,7 @@ class UserController extends Controller
         $this->validate($request, [
             'money' => 'required|integer|min:1|max:10000'
         ]);
-        $this->userService->charge($this->params);
-        return $this->success([], $request);
+        $data = $this->userService->charge($this->params);
+        return $this->success($data, $request);
     }
 }

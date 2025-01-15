@@ -120,10 +120,10 @@ class User extends Base implements AuthenticatableContract, AuthorizableContract
      * @param string $money
      * @param string $changeType
      * @param array $extend
-     * @return void
+     * @return int
      * @throws BusinessException
      */
-    public static function changeMoney(int|object $userId, string $money, string $changeType = UserEnum::MONEY_INCR, array $extend = []): void
+    public static function changeMoney(int|object $userId, string $money, string $changeType = UserEnum::MONEY_INCR, array $extend = []): int
     {
         if (is_int($userId))
             $user = self::query()->findOrFail($userId);
@@ -153,5 +153,6 @@ class User extends Base implements AuthenticatableContract, AuthorizableContract
             ];
             MoneyFlowLog::query()->insert($data);
         }
+        return $user->money;
     }
 }

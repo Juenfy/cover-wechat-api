@@ -20,12 +20,11 @@ class RedPacketService extends BaseService
 {
     private \Redis $userRedis;
 
-    private int $time;
 
     public function __construct()
     {
+        parent::__construct();
         $this->userRedis = Redis::connection(UserEnum::STORE)->client();
-        $this->time = time();
     }
 
     public function recordList(array $params): array
@@ -69,11 +68,15 @@ class RedPacketService extends BaseService
                 $this->throwBusinessException(ApiCodeEnum::CLIENT_PARAMETER_ERROR);
             }
             $params['type'] = RedPacketEnum::TYPE_BELONG;
+        }
+        // 群聊专属红包
+        if (!empty($params['group_id']) && !empty($params['to_user'])) {
+            $params['type'] = RedPacketEnum::TYPE_BELONG;
+        }
+        if ($params['type'] === RedPacketEnum::TYPE_BELONG) {
             $params['total'] = 1;
         }
         if (!in_array($params['type'], RedPacketEnum::TYPE) || //红包类型校验
-            $params['type'] == RedPacketEnum::TYPE_BELONG && $params['total'] > 1 || //专属红包数量不能大于1个
-            !empty($params['to_user']) && $params['total'] > 1 || //私聊红包数量不能大于1个
             $params['money'] <= 0 || //红包金额要大于0
             $params['money'] / $params['total'] < 0.01 //最小红包金额不能小于0.01
         ) {
@@ -103,30 +106,40 @@ class RedPacketService extends BaseService
                 'money' => $params['money'] * 100,
                 'total' => $params['total'],
                 'stock' => $params['total'],
-                'remark' => $params['remark'] ?? '恭喜发财，大吉大利',
+                'remark' => $params['remark'],
                 'overdued_at' => $this->time + 86400,
                 'created_at' => $this->time
             ];
             $id = RedPacket::query()->insertGetId($data);
             //发红包扣余额
-            User::changeMoney($fromUser, $params['money'], \App\Enums\Database\UserEnum::MONEY_DECR, [
+            $money = User::changeMoney($fromUser, $params['money'], \App\Enums\Database\UserEnum::MONEY_DECR, [
                 'money_flow_type' => MoneyFlowLogEnum::TYPE_RED_PACKET,
                 'from_id' => $id,
                 'remark' => '发出红包'
             ]);
             DB::commit();
-            $packetsInYuan = $this->generateRedPackets($params['money'], $params['total']);
+            if ($params['type'] === RedPacketEnum::TYPE_LUCKY) {
+                //拼手气红包
+                $packetsInYuan = $this->generateRedPackets($params['money'], $params['total']);
+            } else {
+                //专属或者普通红包
+                $packetsInYuan = [];
+                for ($i = 0; $i < $params['total']; $i++) {
+                    $packetsInYuan[] = round($params['money'] / $params['total'], 2);
+                }
+            }
+
             $key = sprintf(UserEnum::RED_PACKET, $id);
             $this->userRedis->multi();
             foreach ($packetsInYuan as $v) {
-                $this->userRedis->sAdd($key, $v);
+                $this->userRedis->lPush($key, $v);
             }
             $this->userRedis->expire($key, $data['overdued_at']);
             $this->userRedis->exec();
-            return ['id' => $id];
+            return ['id' => $id, 'money' => $money];
         } catch (\Exception $e) {
             DB::rollBack();
-            throw new BusinessException(ApiCodeEnum::SYSTEM_ERROR, $e->getMessage());
+            $this->throwBusinessException(ApiCodeEnum::SYSTEM_ERROR, $e->getMessage());
         }
     }
 
@@ -168,18 +181,18 @@ class RedPacketService extends BaseService
             DB::beginTransaction();
             try {
                 $redPacket = $this->check($params);
-                $money = $this->userRedis->sPop(sprintf(UserEnum::RED_PACKET, $params['id']));
-                User::changeMoney($fromUser, $money, \App\Enums\Database\UserEnum::MONEY_INCR, [
+                $money = $this->userRedis->rPop(sprintf(UserEnum::RED_PACKET, $params['id']));
+                $userMoney = User::changeMoney($fromUser, $money, \App\Enums\Database\UserEnum::MONEY_INCR, [
                     'money_flow_type' => MoneyFlowLogEnum::TYPE_RED_PACKET,
                     'from_id' => $redPacket->id,
                     'remark' => '领取红包'
                 ]);
                 $redPacket->stock -= 1;
-                $redPacket->updated_at = time();
+                $redPacket->updated_at = $this->time;
                 $redPacket->save();
                 DB::commit();
                 $this->userRedis->del($key);
-                return ['id' => $redPacket['id'], 'money' => $money, 'total' => $redPacket->total, 'stock' => $redPacket->stock];
+                return ['id' => $redPacket['id'], 'money' => $money, 'user_money' => $userMoney, 'total' => $redPacket->total, 'stock' => $redPacket->stock];
             } catch (\Exception $e) {
                 DB::rollBack();
                 $this->userRedis->del($key);
@@ -200,6 +213,19 @@ class RedPacketService extends BaseService
         $redPacket = RedPacket::query()->findOrFail($params['id']);
         $groupId = $redPacket->group_id;
 
+        if (!$groupId && $redPacket->type === RedPacketEnum::TYPE_BELONG && $redPacket->from_user == $fromUser) {
+            // 过期了
+            if ($redPacket->overdued_at < $this->time && $redPacket->stock > 0) {
+                $this->throwBusinessException(ApiCodeEnum::FAILED_DEFAULT, '该红包已超过24小时，如已被好友领取，可在“红包记录”中查看');
+            }
+            if ($redPacket->stock > 0) {
+                $this->throwBusinessException(ApiCodeEnum::FAILED_DEFAULT, '等待好友领取');
+            }
+            if ($redPacket->stock <= 0) {
+                $this->throwBusinessException(ApiCodeEnum::FAILED_DEFAULT, '红包已被领取');
+            }
+        }
+
         // 非群成员
         if ($groupId && !GroupUser::checkIsGroupMember($fromUser, $groupId)) {
             $this->throwBusinessException(ApiCodeEnum::CLIENT_PARAMETER_ERROR);
@@ -209,6 +235,12 @@ class RedPacketService extends BaseService
         if (!$groupId && !Friend::checkIsFriend($redPacket->from_user, $fromUser)) {
             $this->throwBusinessException(ApiCodeEnum::CLIENT_PARAMETER_ERROR);
         }
+
+        // 过期了
+        if ($redPacket->overdued_at < $this->time && $redPacket->stock > 0) {
+            $this->throwBusinessException(ApiCodeEnum::FAILED_DEFAULT, '该红包已超过24小时，如已领取，可在“红包记录”中查看');
+        }
+
 
         // 专属红包校验不通过
         if ($redPacket->type === RedPacketEnum::TYPE_BELONG && $fromUser !== $redPacket->to_user) {
@@ -224,12 +256,7 @@ class RedPacketService extends BaseService
             ->exists();
 
         if ($isReceive) {
-            $this->throwBusinessException(ApiCodeEnum::FAILED_DEFAULT, '红包已经领取过了！');
-        }
-
-        // 过期了
-        if ($redPacket->overdued_at < $this->time) {
-            $this->throwBusinessException(ApiCodeEnum::FAILED_DEFAULT, '该红包已超过24小时，如已领取，可在“红包记录”中查看');
+            $this->throwBusinessException(ApiCodeEnum::FAILED_DEFAULT, '红包已领取');
         }
 
         // 抢完了

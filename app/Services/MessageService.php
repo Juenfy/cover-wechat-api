@@ -6,6 +6,9 @@ use App\Enums\ApiCodeEnum;
 use App\Enums\Database\FileEnum;
 use App\Enums\Database\FriendEnum;
 use App\Enums\Database\MessageEnum;
+use App\Enums\Database\MoneyFlowLogEnum;
+use App\Enums\Database\RedPacketEnum;
+use App\Enums\Database\UserEnum;
 use App\Enums\Redis\ChatEnum;
 use App\Enums\WorkerManEnum;
 use App\Exceptions\BusinessException;
@@ -15,6 +18,8 @@ use App\Models\Friend;
 use App\Models\Group;
 use App\Models\GroupUser;
 use App\Models\Message;
+use App\Models\MoneyFlowLog;
+use App\Models\RedPacket;
 use App\Models\User;
 use GatewayWorker\Lib\Gateway;
 use Illuminate\Support\Facades\DB;
@@ -57,20 +62,45 @@ class MessageService extends BaseService
             }])->whereIn('id', $parentIds)->get()->toArray();
             $parentMessages = array_column($parentMessages, null, 'id');
             $files = $this->getFiles($parentMessages);
+            $redPackets = $this->getRedPackets($parentMessages);
             foreach ($parentMessages as $pk => $parentMessage) {
-                $parentMessages[$pk] = $this->handleMessage($parentMessage, $toUser, 0, $files);
+                $parentMessages[$pk] = $this->handleMessage($parentMessage, $toUser, 0, $files, $redPackets);
             }
         }
 
         $files = $this->getFiles($messages);
-
+        $redPackets = $this->getRedPackets($messages);
+        $redPacketRecords = $this->getRedPacketRecords($messages);
         foreach ($messages as $message) {
-            $item = $this->handleMessage($message, $toUser, 0, $files);
+            $item = $this->handleMessage($message, $toUser, 0, $files, $redPackets);
             $atUsers = explode(',', $message['at_users']);
             $atUsers = array_filter($atUsers);
             $item['at_users'] = array_map('intval', $atUsers);
             !empty($parentMessages[$message['pid']]) && $item['parent'] = $parentMessages[$message['pid']];
             $item['right'] = $message['from_user'] == $fromUser;
+
+            //红包状态处理
+            if (!empty($item['red_packet'])) {
+                $redPacketId = $item['red_packet']['id'];
+                $receiveUserIds = $redPacketRecords[$redPacketId] ?? [];
+                if (in_array($fromUser, $receiveUserIds)) {
+                    $item['red_packet']['status'] = -2; //已领取
+                }
+                if ($item['red_packet']['from_user'] == $fromUser && $item['red_packet']['status'] == 1 && $item['red_packet']['stock'] <= 0) {
+                    $item['red_packet']['status'] = -1; //已被领取
+                }
+                if ($item['red_packet']['status'] == 1 && $item['red_packet']['overdued_at'] < $this->time) {
+                    $item['red_packet']['status'] = -3; //已过期
+                }
+                //别人的专属红包
+                if ($item['red_packet']['status'] == 1 && $item['red_packet']['group_id'] && $item['red_packet']['to_user'] && $item['red_packet']['to_user'] != $fromUser) {
+                    $item['red_packet']['status'] = -4; //无法领取
+                }
+                if ($item['red_packet']['status'] == 1 && $item['red_packet']['stock'] <= 0) {
+                    $item['red_packet']['status'] = -5; //被抢光了
+                }
+            }
+
             $list[] = $item;
         }
         unset($message, $messages);
@@ -158,9 +188,8 @@ class MessageService extends BaseService
         }
         $fromUser = $params['user']->id;
         $toUser = $params['to_user'];
-        $time = time();
-        $message = $this->handleMessage($params, $toUser, $fromUser, []);
-        $message['time'] = $time;
+        $message = $this->handleMessage($params, $toUser, $fromUser);
+        $message['time'] = $this->time;
         $assistantIds = get_assistant_ids();
         $atUserStr = $params['at_users'] ?? '';
         $atUsers = explode(',', $atUserStr);
@@ -179,8 +208,24 @@ class MessageService extends BaseService
             'type' => $params['type'],
             'pid' => $params['pid'] ?? 0,
             'at_users' => $atUserStr,
-            'created_at' => $time
+            'created_at' => $this->time
         ];
+
+        //红包消息处理
+        if ($params['type'] == MessageEnum::RED_PACKET) {
+            $redPacketId = $params['red_packet_id'];
+            if (empty($redPacketId)) $this->throwBusinessException(ApiCodeEnum::CLIENT_PARAMETER_ERROR);
+            $redPacket = RedPacket::with(['from' => function ($query) {
+                $query->select(['id', 'nickname', 'avatar']);
+            }])->find($redPacketId)->toArray();
+            if ($redPacket) {
+                $redPacket['status'] = 1;
+                $data['red_packet_id'] = $redPacketId;
+                $sendData['data']['red_packet'] = $redPacket;
+                $data['content'] = $redPacket['remark'];
+                $sendData['data']['content'] = $redPacket['remark'];
+            }
+        }
 
         //文件消息处理
         if (in_array($params['type'], FileEnum::TYPE)) {
@@ -192,13 +237,13 @@ class MessageService extends BaseService
                 $data['file_name'] = $file->name;
                 $data['file_type'] = $file->type;
                 $data['file_size'] = $file->size;
-                $sendData['data']['extends'] = [
-                    'path' => str_replace(env('STATIC_FILE_URL'), '', $file->path),
-                    'format' => $file->format,
-                    'width' => $file->width,
-                    'height' => $file->height,
-                    'duration' => $file->duration
-                ];
+//                $sendData['data']['extends'] = [
+//                    'path' => str_replace(env('STATIC_FILE_URL'), '', $file->path),
+//                    'format' => $file->format,
+//                    'width' => $file->width,
+//                    'height' => $file->height,
+//                    'duration' => $file->duration
+//                ];
                 $sendData['data']['file'] = [
                     'id' => $fileId,
                     'name' => $file->name,
@@ -227,7 +272,7 @@ class MessageService extends BaseService
                 }
                 $group->send_user = $fromUser;
                 $group->content = $data['content'];
-                $group->time = $time;
+                $group->time = $this->time;
                 $group->save();
                 GroupUser::query()
                     ->where('group_id', $toUser)
@@ -245,7 +290,7 @@ class MessageService extends BaseService
                         ->update([
                             'display' => 1,
                             'content' => $data['content'],
-                            'time' => $time
+                            'time' => $this->time
                         ]);
                     Friend::query()
                         ->whereRaw("(friend = $fromUser AND owner = $toUser)")
@@ -406,7 +451,7 @@ class MessageService extends BaseService
         if (!$message) $this->throwBusinessException(ApiCodeEnum::CLIENT_PARAMETER_ERROR);
         $message->is_undo = 1;
         $message->is_tips = 1;
-        $message->updated_at = time();
+        $message->updated_at = $this->time;
         $message->save();
         return true;
     }
@@ -467,14 +512,62 @@ class MessageService extends BaseService
     }
 
     /**
+     * 通用获取消息里的关联红包方法
+     * @param array $messages
+     * @return array
+     */
+    private function getRedPackets(array $messages): array
+    {
+        $redPacketIds = array_column($messages, 'red_packet_id');
+        $redPacketIds = array_filter($redPacketIds);
+        $redPackets = [];
+        if ($redPacketIds) {
+            $redPackets = RedPacket::with(['from' => function ($query) {
+                $query->select(['id', 'nickname', 'avatar']);
+            }])->whereIn('id', $redPacketIds)->get()->toArray();
+            $redPackets = array_column($redPackets, null, 'id');
+        }
+        return $redPackets;
+    }
+
+    /**
+     * 通用获取领取红包记录
+     * @param array $messages
+     * @return array
+     */
+    private function getRedPacketRecords(array $messages): array
+    {
+        $redPacketIds = array_column($messages, 'red_packet_id');
+        $redPacketIds = array_filter($redPacketIds);
+        $redPacketRecords = [];
+        if ($redPacketIds) {
+            $list = MoneyFlowLog::query()
+                ->where('type', MoneyFlowLogEnum::TYPE_RED_PACKET)
+                ->where('change_type', UserEnum::MONEY_INCR)
+                ->whereIn('from_id', $redPacketIds)
+                ->get(['from_id', 'user_id'])
+                ->toArray();
+            foreach ($list as $item) {
+                if (isset($redPacketRecords[$item['from_id']])) {
+                    $redPacketRecords[$item['from_id']][] = $item['user_id'];
+                } else {
+                    $redPacketRecords[$item['from_id']] = [$item['user_id']];
+                }
+            }
+        }
+        return $redPacketRecords;
+    }
+
+    /**
      * 通用处理消息方法
      * @param array $message
      * @param int $toUser
      * @param int $fromUser
      * @param array $files
+     * @param array $redPackets
      * @return array
      */
-    private function handleMessage(array $message, int $toUser, int $fromUser, array $files): array
+    private function handleMessage(array $message, int $toUser, int $fromUser, array $files = [], array $redPackets = []): array
     {
 
         $item = [
@@ -487,6 +580,8 @@ class MessageService extends BaseService
             'is_undo' => $message['is_undo'] ?? 0,
             'is_tips' => $message['is_tips'] ?? 0,
             'time' => !empty($message['created_at']) ? strtotime($message['created_at']) : 0,
+            'red_packet_id' => $message['red_packet_id'] ?? 0,
+            'red_packet' => [],
             'file' => [],
             'extends' => [],
             'pid' => 0,
@@ -500,19 +595,28 @@ class MessageService extends BaseService
             $file = $files[$fileId] ?? [];
             if ($file) {
                 $item['content'] = $file['path'];
-                $item['extends'] = [
-                    'thumbnail' => $file['thumbnail_path'] ?: '',
-                    'format' => $file['format'],
-                    'width' => $file['width'],
-                    'height' => $file['height'],
-                    'duration' => $file['duration']
-                ];
+//                $item['extends'] = [
+//                    'thumbnail' => $file['thumbnail_path'] ?: '',
+//                    'format' => $file['format'],
+//                    'width' => $file['width'],
+//                    'height' => $file['height'],
+//                    'duration' => $file['duration']
+//                ];
                 $item['file'] = [
                     'id' => $fileId,
                     'name' => $file['name'],
                     'type' => $file['type'],
                     'size' => $file['size']
                 ];
+            }
+        }
+        if ($message['type'] === MessageEnum::RED_PACKET) {
+            $redPacketId = $message['red_packet_id'];
+            $redPacket = $redPackets[$redPacketId] ?? [];
+            if ($redPacket) {
+                $item['content'] = $redPacket['remark'];
+                $item['red_packet'] = $redPacket;
+                $item['red_packet']['status'] = 1;
             }
         }
         return $item;
