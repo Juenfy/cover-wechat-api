@@ -193,7 +193,10 @@ class MessageService extends BaseService
         $assistantIds = get_assistant_ids();
         $atUserStr = $params['at_users'] ?? '';
         $atUsers = explode(',', $atUserStr);
-        $atUsers = array_filter($atUsers);
+        if ($atUsers) {
+            $atUsers = array_filter($atUsers);
+            $atUsers = array_diff($atUsers, [$fromUser]);
+        }
         $sendData = [
             'who' => WorkerManEnum::WHO_MESSAGE,
             'action' => WorkerManEnum::ACTION_SEND,
@@ -326,7 +329,6 @@ class MessageService extends BaseService
 
             //at用户处理
             if ($atUsers) {
-                $sendData['data']['at_users'] = $atUsers;
                 $sendAtData = $sendData;
                 $sendAtData['action'] = WorkerManEnum::ACTION_AT;
                 //通知被at的用户
@@ -414,7 +416,7 @@ class MessageService extends BaseService
             $update = array_diff($origin, [$fromUser]);
             $message->$field = implode(',', $update);
             $message->save();
-            if (Message::query()->whereRaw("FIND_IN_SET($fromUser, {$field})")->count() > 0) {
+            if (Message::query()->whereRaw("FIND_IN_SET($fromUser, {$field})")->count() <= 0) {
                 //所有at/引用消息标记已读
                 if ($isGroup == MessageEnum::GROUP) {
                     $group = Group::query()->findOrFail($toUser);
