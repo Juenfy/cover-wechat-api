@@ -251,7 +251,8 @@ class MessageService extends BaseService
                     'id' => $fileId,
                     'name' => $file->name,
                     'type' => $file->type,
-                    'size' => $file->size
+                    'size' => $file->size,
+                    'duration' => $file->duration
                 ];
 //                $data['extends'] = json_encode([]);
                 $sendData['data']['content'] = $file->path;
@@ -271,7 +272,7 @@ class MessageService extends BaseService
                     $atUsers = array_map('intval', $atUsers);
                     $originAtUsers = explode(',', $group->at_users);
                     $updateAtUsers = array_unique(array_merge($originAtUsers, $atUsers));
-                    $group->at_users = implode(',', $updateAtUsers);
+                    $group->at_users = trim(implode(',', $updateAtUsers), ',');
                 }
                 $group->send_user = $fromUser;
                 $group->content = $data['content'];
@@ -414,7 +415,7 @@ class MessageService extends BaseService
             $message = Message::query()->findOrFail($params['id']);
             $origin = explode(',', $message->$field);
             $update = array_diff($origin, [$fromUser]);
-            $message->$field = implode(',', $update);
+            $message->$field = trim(implode(',', $update), ',');
             $message->save();
             if (Message::query()->whereRaw("FIND_IN_SET($fromUser, {$field})")->count() <= 0) {
                 //所有at/引用消息标记已读
@@ -422,13 +423,13 @@ class MessageService extends BaseService
                     $group = Group::query()->findOrFail($toUser);
                     $origin = explode(',', $group->$field);
                     $update = array_diff($origin, [$fromUser]);
-                    $group->$field = implode(',', $update);
+                    $group->$field = trim(implode(',', $update), ',');
                     $group->save();
                 } else {
                     $friend = Friend::query()->where('owner', $fromUser)->where('friend', $toUser)->first();
                     $origin = explode(',', $friend->$field);
                     $update = array_diff($origin, [$fromUser]);
-                    $friend->$field = implode(',', $update);
+                    $friend->$field = trim(implode(',', $update), ',');
                     $friend->save();
                 }
             }
@@ -608,7 +609,8 @@ class MessageService extends BaseService
                     'id' => $fileId,
                     'name' => $file['name'],
                     'type' => $file['type'],
-                    'size' => $file['size']
+                    'size' => $file['size'],
+                    'duration' => $file['duration']
                 ];
             }
         }
