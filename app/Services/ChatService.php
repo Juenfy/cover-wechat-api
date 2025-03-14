@@ -10,8 +10,6 @@ use App\Models\Friend;
 use App\Models\Group;
 use App\Models\GroupUser;
 use App\Models\User;
-use Exception;
-use Illuminate\Support\Facades\DB;
 
 class ChatService extends BaseService
 {
@@ -54,9 +52,9 @@ class ChatService extends BaseService
                     $query->select(['id', 'nickname']);
                 }, 'friend' => function ($query) {
                     $query->select(['friend', 'nickname']);
-                }])->select(['id', 'content', 'time', 'send_user', 'name', 'at_users']);
+                }])->select(['id', 'time', 'send_user', 'name', 'at_users']);
             }])
-            ->select(['unread', 'top', 'group_id', 'user_id', 'name', 'nickname'])
+            ->select(['unread', 'top', 'group_id', 'user_id', 'name', 'nickname', 'content'])
             ->where('user_id', $fromUser)
             ->where('display', 1)
             ->get()->toArray();
@@ -88,7 +86,7 @@ class ChatService extends BaseService
                 $nickname = $item['group']['friend']['nickname'] ?: $item['group']['send']['nickname'];
             }
             $item['nickname'] = $item['name'] ?: $item['group']['name'];
-            $item['content'] = $nickname . '：' . $item['group']['content'];
+            $item['content'] = $nickname . '：' . $item['content'];
             $item['time'] = $item['group']['time'];
             $item['to_user'] = $item['group_id'];
             $item['is_group'] = MessageEnum::GROUP;
@@ -307,29 +305,7 @@ class ChatService extends BaseService
 
         $toUser = (int)$params['to_user'];
         $fromUser = (int)$params['user']->id;
-        DB::beginTransaction();
-        try {
-            if ($isGroup == MessageEnum::GROUP) {
-                DB::update("UPDATE cw_messages SET deleted_users=CONCAT(deleted_users, ',', {$fromUser}) WHERE (from_user={$fromUser} AND to_user={$toUser}) AND is_group={$isGroup} AND (FIND_IN_SET('{$fromUser}', deleted_users) = '')");
-                GroupUser::query()
-                    ->where('group_id', $toUser)
-                    ->where('user_id', $fromUser)
-                    ->update(['display' => 0]);
-            } else {
-                DB::update("UPDATE cw_messages SET deleted_users=CONCAT(deleted_users, ',', {$fromUser}) WHERE ((from_user={$fromUser} AND to_user={$toUser}) OR (from_user={$toUser} AND to_user={$fromUser})) AND is_group={$isGroup} AND (FIND_IN_SET('{$fromUser}', deleted_users) = '')");
-                Friend::query()
-                    ->where('owner', $fromUser)
-                    ->where('friend', $toUser)
-                    ->update(['display' => 0]);
-            }
-
-            DB::commit();
-        } catch (Exception $e) {
-            DB::rollBack();
-            $this->throwBusinessException(ApiCodeEnum::SYSTEM_ERROR, $e->getMessage());
-        }
-
-
+        $this->clearRecord($fromUser, $toUser, $isGroup);
         return [
             'is_group' => $isGroup,
             'to_user' => $toUser,

@@ -62,6 +62,7 @@ $router->group(['middleware' => 'auth:api'], function ($router) {
     $router->get('message/list', 'MessageController@list');
     $router->get('message/unread', 'MessageController@unread');
     $router->put('message/undo', 'MessageController@undo');
+    $router->put('message/clear', 'MessageController@clear');
 
     //群组模块
     $router->group(['prefix' => 'group'], function ($router) {

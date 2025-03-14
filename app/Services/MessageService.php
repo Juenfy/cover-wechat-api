@@ -275,13 +275,13 @@ class MessageService extends BaseService
                     $group->at_users = trim(implode(',', $updateAtUsers), ',');
                 }
                 $group->send_user = $fromUser;
-                $group->content = $data['content'];
                 $group->time = $this->time;
                 $group->save();
                 GroupUser::query()
                     ->where('group_id', $toUser)
                     ->update([
-                        'display' => 1
+                        'display' => 1,
+                        'content' => $data['content']
                     ]);
                 GroupUser::query()
                     ->where('group_id', $toUser)
@@ -495,6 +495,19 @@ class MessageService extends BaseService
             ],
             'discover' => $moment['num']
         ];
+    }
+
+    /**
+     * 清空聊天记录
+     * @param array $params
+     * @throws BusinessException
+     */
+    public function clear(array $params): void
+    {
+        $fromUser = $params['user']->id;
+        $toUser = $params['to_user'];
+        $isGroup = $params['is_group'];
+        $this->clearRecord($fromUser, $toUser, $isGroup, 'message');
     }
 
     /**

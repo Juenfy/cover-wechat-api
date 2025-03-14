@@ -89,4 +89,10 @@ class MessageController extends Controller
         $data = $this->messageService->unread($request->user()->id);
         return $this->success($data, $request);
     }
+
+    public function clear(Request $request): JsonResponse
+    {
+        $this->messageService->clear($this->params);
+        return $this->success([], $request);
+    }
 }
