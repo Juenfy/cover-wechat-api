@@ -70,8 +70,14 @@ class AssistantService extends BaseService
                 'created_at' => $this->time
             ];
         }
-        Friend::query()->insert($batchAiData);
-        Message::query()->insert($batchMessageData);
+        DB::beginTransaction();
+        try {
+            Friend::query()->insert($batchAiData);
+            Message::query()->insert($batchMessageData);
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+        }
     }
 
     /**
@@ -101,8 +107,14 @@ class AssistantService extends BaseService
                 'created_at' => $this->time
             ];
         }
-        GroupUser::query()->insert($batchAiData);
-        Message::query()->insert($batchMessageData);
+        DB::beginTransaction();
+        try {
+            GroupUser::query()->insert($batchAiData);
+            Message::query()->insert($batchMessageData);
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+        }
     }
 
     /**
@@ -114,188 +126,188 @@ class AssistantService extends BaseService
     public function replyMessage(array $data): void
     {
         if (isset($this->assistant[$data['to_ai']])) {
-            $ai = $this->assistant[$data['to_ai']];
-            $aiUser = User::query()->find($data['to_ai']);
-            $data['type'] = $aiType = $ai['type'];
+            return;
+        }
+        $ai = $this->assistant[$data['to_ai']];
+        $aiUser = User::query()->find($data['to_ai']);
+        $data['type'] = $aiType = $ai['type'];
 
-            $options = [
-                'timeout' => 30,
+        $options = [
+            'timeout' => 30,
+        ];
+        $client = new Client($options);
+        $nickname = $aiUser->nickname;
+        $apiUri = $ai['api_uri'];
+        $token = $ai['token'];
+        $tokenType = $ai['token_type'];
+        $aiContent = str_replace("@{$nickname} ", "", $data['content']);
+        $json = [];
+        if ($aiType === MessageEnum::TEXT) {
+            //ai文字回复
+            $json['messages'] = $ai['messages'];
+            $json['messages'][] = [
+                'role' => 'user',
+                'content' => "{$aiContent}，请用中文回复我！",
             ];
-            $client = new Client($options);
-            $nickname = $aiUser->nickname;
-            $apiUri = $ai['api_uri'];
-            $token = $ai['token'];
-            $tokenType = $ai['token_type'];
-            $aiContent = str_replace("@{$nickname} ", "", $data['content']);
-            $json = [];
+        } else {
+            //ai绘画
+            $promptArr = explode('<>', $aiContent);
+            $prompt = str_replace(array("\r\n", "\r", "\n"), '', $promptArr[0]);
+            $json = ['prompt' => $prompt];
+            if (!empty($promptArr[1])) {
+                $negativePrompt = str_replace(array("\r\n", "\r", "\n"), '', $promptArr[1]);
+                $json['negative_prompt'] = $negativePrompt;
+            }
+        }
+        $file = [];
+        $user = User::query()->find($data['to_ai']);
+        try {
+            $response = $client->post($apiUri, [
+                'headers' => [
+                    'Authorization' => "$tokenType $token",
+                ],
+                'json' => $json
+            ]);
             if ($aiType === MessageEnum::TEXT) {
-                //ai文字回复
-                $json['messages'] = $ai['messages'];
-                $json['messages'][] = [
-                    'role' => 'user',
-                    'content' => "{$aiContent}，请用中文回复我！",
-                ];
+                //回复文本信息
+                $result = json_decode($response->getBody()->getContents(), true);
+                if ($result['success']) {
+                    $replyMessage = $result['result']['response'];
+                } else {
+                    $replyMessage = implode('\n\n', $result['messages']);
+                }
             } else {
-                //ai绘画
-                $promptArr = explode('<>', $aiContent);
-                $prompt = str_replace(array("\r\n", "\r", "\n"), '', $promptArr[0]);
-                $json = ['prompt' => $prompt];
-                if (!empty($promptArr[1])) {
-                    $negativePrompt = str_replace(array("\r\n", "\r", "\n"), '', $promptArr[1]);
-                    $json['negative_prompt'] = $negativePrompt;
-                }
-            }
-            $file = [];
-            $user = User::query()->find($data['to_ai']);
-            try {
-                $response = $client->post($apiUri, [
-                    'headers' => [
-                        'Authorization' => "$tokenType $token",
-                    ],
-                    'json' => $json
-                ]);
-                if ($aiType === MessageEnum::TEXT) {
-                    //回复文本信息
-                    $result = json_decode($response->getBody()->getContents(), true);
-                    if ($result['success']) {
-                        $replyMessage = $result['result']['response'];
-                    } else {
-                        $replyMessage = implode('\n\n', $result['messages']);
-                    }
+                //下载并回复绘制好的图片
+                $date = date('Ymd');
+                $fileName = md5(uniqid($this->time, true)) . ".png";
+                $filePath = "uploads/image/{$date}/{$fileName}";
+                $fileRealPath = Storage::disk('public')->path($filePath);
+                $thumbnailFilePath = "uploads/image/{$date}/thumbnail_{$fileName}";
+                Storage::disk('public')->put($filePath, (string)$response->getBody());
+                $signature = md5_file($fileRealPath);
+                list($width, $height, $size) = (new FileService())->makeThumbnailImage($fileRealPath, $thumbnailFilePath);
+                $file = File::query()->where('signature', $signature)->first();
+                if (!$file) {
+                    $file = new File();
+                    $file->name = $fileName;
+                    $file->path = $filePath;
+                    $file->thumbnail_path = $thumbnailFilePath;
+                    $file->size = $size;
+                    $file->width = $width;
+                    $file->height = $height;
+                    $file->duration = 0;
+                    $file->signature = $signature;
+                    $file->type = 'image';
+                    $file->format = 'png';
+                    $file->save();
                 } else {
-                    //下载并回复绘制好的图片
-                    $date = date('Ymd');
-                    $fileName = md5(uniqid($this->time, true)) . ".png";
-                    $filePath = "uploads/image/{$date}/{$fileName}";
-                    $fileRealPath = Storage::disk('public')->path($filePath);
-                    $thumbnailFilePath = "uploads/image/{$date}/thumbnail_{$fileName}";
-                    Storage::disk('public')->put($filePath, (string)$response->getBody());
-                    $signature = md5_file($fileRealPath);
-                    list($width, $height, $size) = (new FileService())->makeThumbnailImage($fileRealPath, $thumbnailFilePath);
-                    $file = File::query()->where('signature', $signature)->first();
-                    if (!$file) {
-                        $file = new File();
-                        $file->name = $fileName;
-                        $file->path = $filePath;
-                        $file->thumbnail_path = $thumbnailFilePath;
-                        $file->size = $size;
-                        $file->width = $width;
-                        $file->height = $height;
-                        $file->duration = 0;
-                        $file->signature = $signature;
-                        $file->type = 'image';
-                        $file->format = 'png';
-                        $file->save();
-                    } else {
-                        //已经存在了，删除多余的
-                        @unlink($fileRealPath);
-                        @unlink(Storage::disk('public')->path($thumbnailFilePath));
-                    }
-
-                    $data['extends'] = [
-                        'path' => $file->path,
-                        'format' => $file->format,
-                        'width' => $file->width,
-                        'height' => $file->height,
-                        'duration' => $file->duration
-                    ];
-                    $data['file'] = [
-                        'id' => $file->id,
-                        'name' => $file->name,
-                        'type' => $file->type,
-                        'size' => $file->size
-                    ];
-                    $replyMessage = MessageEnum::SIMPLE_CONTENT[$aiType];
-                }
-            } catch (\Exception $e) {
-                $replyMessage = $e->getMessage();
-            }
-            DB::beginTransaction();
-            try {
-                //更新未读数、最新消息等信息
-                if ($data['is_group'] == MessageEnum::GROUP) {
-                    Group::query()->where('id', $data['to_user'])
-                        ->update([
-                            'send_user' => $data['to_ai'],
-                            'content' => $replyMessage,
-                            'time' => $this->time
-                        ]);
-                    GroupUser::query()
-                        ->where('group_id', $data['to_user'])
-                        ->update([
-                            'display' => 1
-                        ]);
-                    GroupUser::query()
-                        ->where('group_id', $data['to_user'])
-                        ->where('user_id', '<>', $data['to_ai'])
-                        ->increment('unread');
-                } else {
-                    Friend::query()
-                        ->where('owner', $data['from_user'])
-                        ->where('friend', $data['to_ai'])
-                        ->update([
-                            'display' => 1,
-                            'content' => $replyMessage,
-                            'time' => $this->time
-                        ]);
-                    Friend::query()
-                        ->where('owner', $data['from_user'])
-                        ->where('friend', $data['to_ai'])
-                        ->increment('unread');
+                    //已经存在了，删除多余的
+                    @unlink($fileRealPath);
+                    @unlink(Storage::disk('public')->path($thumbnailFilePath));
                 }
 
-                $messageData = [
-                    'from_user' => $data['to_ai'],
-                    'to_user' => $data['is_group'] == MessageEnum::GROUP ? $data['to_user'] : $data['from_user'],
-                    'content' => $replyMessage,
-                    'type' => $aiType,
-                    'is_group' => $data['is_group'],
-                    'created_at' => $this->time
+                $data['extends'] = [
+                    'path' => $file->path,
+                    'format' => $file->format,
+                    'width' => $file->width,
+                    'height' => $file->height,
+                    'duration' => $file->duration
                 ];
-                if ($aiType === MessageEnum::TEXT) {
-                    $data['content'] = $replyMessage;
-                } else {
-                    if (isset($file->id)) {
-                        $messageData['file_id'] = $file->id;
-                        $messageData['file_name'] = $file->name;
-                        $messageData['file_type'] = $file->type;
-                        $messageData['file_size'] = $file->size;
+                $data['file'] = [
+                    'id' => $file->id,
+                    'name' => $file->name,
+                    'type' => $file->type,
+                    'size' => $file->size
+                ];
+                $replyMessage = MessageEnum::SIMPLE_CONTENT[$aiType];
+            }
+        } catch (\Exception $e) {
+            $replyMessage = $e->getMessage();
+        }
+        DB::beginTransaction();
+        try {
+            //更新未读数、最新消息等信息
+            if ($data['is_group'] == MessageEnum::GROUP) {
+                Group::query()->where('id', $data['to_user'])
+                    ->update([
+                        'send_user' => $data['to_ai'],
+                        'content' => $replyMessage,
+                        'time' => $this->time
+                    ]);
+                GroupUser::query()
+                    ->where('group_id', $data['to_user'])
+                    ->update([
+                        'display' => 1
+                    ]);
+                GroupUser::query()
+                    ->where('group_id', $data['to_user'])
+                    ->where('user_id', '<>', $data['to_ai'])
+                    ->increment('unread');
+            } else {
+                Friend::query()
+                    ->where('owner', $data['from_user'])
+                    ->where('friend', $data['to_ai'])
+                    ->update([
+                        'display' => 1,
+                        'content' => $replyMessage,
+                        'time' => $this->time
+                    ]);
+                Friend::query()
+                    ->where('owner', $data['from_user'])
+                    ->where('friend', $data['to_ai'])
+                    ->increment('unread');
+            }
+
+            $messageData = [
+                'from_user' => $data['to_ai'],
+                'to_user' => $data['is_group'] == MessageEnum::GROUP ? $data['to_user'] : $data['from_user'],
+                'content' => $replyMessage,
+                'type' => $aiType,
+                'is_group' => $data['is_group'],
+                'created_at' => $this->time
+            ];
+            if ($aiType === MessageEnum::TEXT) {
+                $data['content'] = $replyMessage;
+            } else {
+                if (isset($file->id)) {
+                    $messageData['file_id'] = $file->id;
+                    $messageData['file_name'] = $file->name;
+                    $messageData['file_type'] = $file->type;
+                    $messageData['file_size'] = $file->size;
 //                        $messageData['extends'] = json_encode([]);
-                        $data['content'] = $file->path;
-                    } else {
-                        $data['content'] = $replyMessage;
-                        $data['type'] = MessageEnum::TEXT;
-                        $messageData['type'] = MessageEnum::TEXT;
-                    }
-                }
-                $data['id'] = Message::query()->insertGetId($messageData);
-                $data['from'] = [
-                    'id' => $data['to_ai'],
-                    'nickname' => $user->nickname,
-                    'avatar' => $user->avatar,
-                    'wechat' => $user->wechat
-                ];
-                $data['from_user'] = $messageData['from_user'];
-                $data['to_user'] = $messageData['to_user'];
-
-                $data['time'] = $this->time;
-                $sendData = [
-                    'who' => WorkerManEnum::WHO_MESSAGE,
-                    'action' => WorkerManEnum::ACTION_SEND,
-                    'data' => $data
-                ];
-                //向用户发送消息通知
-                if ($data['is_group'] == MessageEnum::GROUP) {
-                    $excludeClientId = Gateway::getClientIdByUid($messageData['from_user']);
-                    Gateway::sendToGroup($messageData['to_user'], json_encode($sendData, JSON_UNESCAPED_UNICODE), $excludeClientId);
+                    $data['content'] = $file->path;
                 } else {
-                    Gateway::sendToUid($messageData['to_user'], json_encode($sendData, JSON_UNESCAPED_UNICODE));
+                    $data['content'] = $replyMessage;
+                    $data['type'] = MessageEnum::TEXT;
+                    $messageData['type'] = MessageEnum::TEXT;
                 }
-                DB::commit();
-            } catch (\Exception $e) {
-                DB::rollBack();
             }
+            $data['id'] = Message::query()->insertGetId($messageData);
+            $data['from'] = [
+                'id' => $data['to_ai'],
+                'nickname' => $user->nickname,
+                'avatar' => $user->avatar,
+                'wechat' => $user->wechat
+            ];
+            $data['from_user'] = $messageData['from_user'];
+            $data['to_user'] = $messageData['to_user'];
 
+            $data['time'] = $this->time;
+            $sendData = [
+                'who' => WorkerManEnum::WHO_MESSAGE,
+                'action' => WorkerManEnum::ACTION_SEND,
+                'data' => $data
+            ];
+            //向用户发送消息通知
+            if ($data['is_group'] == MessageEnum::GROUP) {
+                $excludeClientId = Gateway::getClientIdByUid($messageData['from_user']);
+                Gateway::sendToGroup($messageData['to_user'], json_encode($sendData, JSON_UNESCAPED_UNICODE), $excludeClientId);
+            } else {
+                Gateway::sendToUid($messageData['to_user'], json_encode($sendData, JSON_UNESCAPED_UNICODE));
+            }
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
         }
     }
 }

@@ -80,6 +80,7 @@ class ChatService extends BaseService
         unset($groupUserList, $groupUser);
 
         foreach ($groupChatList as &$item) {
+            if (empty($item['group'])) continue;
             $item['id'] = md5(MessageEnum::GROUP . $fromUser . $item['group']['id']);
             $nickname = $item['nickname'];
             if (empty($nickname)) {
