@@ -125,7 +125,7 @@ class AssistantService extends BaseService
      */
     public function replyMessage(array $data): void
     {
-        if (isset($this->assistant[$data['to_ai']])) {
+        if (empty($this->assistant[$data['to_ai']])) {
             return;
         }
         $ai = $this->assistant[$data['to_ai']];
@@ -171,6 +171,7 @@ class AssistantService extends BaseService
             if ($aiType === MessageEnum::TEXT) {
                 //回复文本信息
                 $result = json_decode($response->getBody()->getContents(), true);
+                var_dump($result);
                 if ($result['success']) {
                     $replyMessage = $result['result']['response'];
                 } else {
